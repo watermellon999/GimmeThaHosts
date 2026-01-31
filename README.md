@@ -2,7 +2,7 @@
 
 # GimmeThaHosts
 
-A small script that helps you build a **custom `/etc/hosts` file** to block unwanted domains for privacy, security, or focus.
+A small script that helps you build a custom `/etc/hosts` file to block unwanted domains for privacy, security, or focus.
 
 In simple terms:  
 👉 it collects domain lists from multiple sources,  

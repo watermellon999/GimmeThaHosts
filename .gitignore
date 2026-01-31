@@ -1,0 +1,19 @@
+# Ignore everything by default
+*
+
+# Allow directories to be traversed
+!*/
+
+# ---- Whitelisted files ----
+!.gitignore
+!README.md
+!LICENSE
+
+# Core scripts
+!*.sh
+
+# Configuration / input files
+!headers.txt
+!sources.txt
+!whitelist.txt
+!blacklist.txt

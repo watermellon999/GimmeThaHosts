@@ -13,6 +13,7 @@
 !*.sh
 
 # Configuration / input files
+!headers.txt
 !sources.txt
 !whitelist.txt
 !blacklist.txt

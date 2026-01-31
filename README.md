@@ -85,7 +85,7 @@ Again: customize freely.
 
 ---
 
-### `hosts.header.txt`
+### `headers.txt`
 
 The static header portion of the hosts file.
 

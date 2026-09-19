@@ -17,7 +17,7 @@ You stay in control of **what gets blocked and what doesn’t**.
 -   curl
 -   aria2c
 
-> **Note:** The master branch does not require aria2c and use curl instead.
+> **Note:** The main branch does not require aria2c and use curl instead.
 
 ---
 

@@ -1,6 +1,6 @@
 # GimmeThaHosts
 
-A small script that helps you build a custom `/etc/hosts` file to block unwanted domains for privacy, security, or focus.
+A small bash script that helps you build a custom `/etc/hosts` file to block unwanted domains for privacy, security, or focus.
 
 In simple terms:  
 👉 it collects domain lists from multiple sources,  
@@ -8,6 +8,15 @@ In simple terms:
 👉 and generates a ready-to-use hosts file — safely and reproducibly.
 
 You stay in control of **what gets blocked and what doesn’t**.
+
+---
+
+## Requirements
+
+-   bash and coreutils
+-   curl
+
+> **Announce:** There is a 'aria2c' branch you can switch to, for better reliability in downloding larger source files. Your host machine should have a aria2c binary and its location should have been added to PATH environment variable. 
 
 ---
 
@@ -59,7 +68,10 @@ If you don’t want things to break — **replace these sources**.
 
 Domains you explicitly **allow**.
 
--   Only exact matches are whitelisted
+-   Either exact matches or regex patterns prefixed by 'regex:' are whitelisted.
+eg: 
+    video.example.com
+    regex:^video-[A-Za-z0-9]{4}-[0-9]\.xx.example\.com$
     
 -   Subdomains are **not** automatically allowed
     

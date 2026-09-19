@@ -83,20 +83,20 @@ fetch() {
     # 3) Fetch (mandatory if validation unavailable or failed)
     ###########################################################################
     if curl -fLs --connect-timeout 10 --max-time 60 "$src" -o "$dst"; then
-      cp "$dst" "$archive_file"
-      [[ -n "$etag" ]] && printf "%s" "$etag" > "$etag_file"
-      [[ -n "$remote_size" ]] && printf "%s" "$remote_size" > "$size_file"
-      log "OK: fetched $src"
-      return 0
-    else
-      log "WARN: failed to fetch $src"
-      if [[ -f "$archive_file" ]]; then
-        log "INFO: using archived copy for $src"
-        cp "$archive_file" "$dst"
-        return 0
-      fi
-      return 1
-    fi
+	  cp "$dst" "$archive_file"
+	  [[ -n "$etag" ]] && printf "%s" "$etag" > "$etag_file"
+	  [[ -n "$remote_size" ]] && printf "%s" "$remote_size" > "$size_file"
+	  log "OK: fetched $src"
+	  return 0
+	else
+	  log "WARN: failed to fetch $src"
+	  if [[ -f "$archive_file" ]]; then
+	    log "INFO: using archived copy for $src"
+	    cp "$archive_file" "$dst"
+	    return 0
+	  fi
+	  return 1
+	fi
   else
     if cp "$src" "$dst" 2>/dev/null; then
       log "OK: read local file $src"
@@ -174,18 +174,39 @@ sort -u "$TMP/all.domains" > "$TMP/unique.domains"
 
 ###############################################################################
 # Whitelist filtering:
-# IMPORTANT CHANGE:
-# - Whitelist now matches ONLY exact domains
-# - Subdomains are NOT removed unless explicitly listed
+# - Supports exact domains (plain text)
+# - Supports regex patterns (prefix with: regex:)
 ###############################################################################
 if [[ -f "$WHITELIST" ]]; then
-  log "INFO: applying whitelist (exact match only)"
+  log "INFO: applying whitelist (exact + regex support)"
+
   awk '
-    NR==FNR { wl[$1]=1; next }
-    {
-      if (!($1 in wl)) print $1
+    # Load whitelist
+    NR==FNR {
+      if ($0 ~ /^regex:/) {
+        sub(/^regex:/, "", $0)
+        regex[++r] = $0
+      } else {
+        exact[$1] = 1
+      }
+      next
     }
-  ' <(normalize < "$WHITELIST" | extract_domains) "$TMP/unique.domains" > "$TMP/filtered.domains"
+
+    {
+      domain = $1
+
+      # Exact match
+      if (domain in exact) next
+
+      # Regex match
+      for (i = 1; i <= r; i++) {
+        if (domain ~ regex[i]) next
+      }
+
+      print domain
+    }
+  ' <(normalize < "$WHITELIST" | extract_domains) \
+    "$TMP/unique.domains" > "$TMP/filtered.domains"
 else
   log "INFO: no whitelist found"
   cp "$TMP/unique.domains" "$TMP/filtered.domains"

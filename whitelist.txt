@@ -1,5 +1,11 @@
 # Reddit
+reddit.com
+www.reddit.com
+api.reddit.com
+new.reddit.com
+old.reddit.com
 i.redd.it
+s.redd.it
 v.redd.it
 preview.redd.it
 external-preview.redd.it
@@ -9,11 +15,16 @@ reddit-uploaded-media.s3-accelerate.amazonaws.com
 thumbs.redditmedia.com
 
 # WhatsApp
+whatsapp.net
 g.whatsapp.net
 cdn.whatsapp.net
 static.whatsapp.net
 web.whatsapp.com
 www.whatsapp.com
+faq.whatsapp.com	
+media-mxp1-1.cdn.whatsapp.net	
+mmx-ds.cdn.whatsapp.net	
+scontent.whatsapp.net	
 
 # TikTok
 api-h2.tiktokv.com
@@ -22,7 +33,15 @@ log.tiktokv.com
 v16a.tiktokcdn.com
 v.tiktok.com
 www.tiktok.com
+api-boot.tiktokv.com
+api-core-boot.tiktokv.com
+regex:^search*\.tiktokv\.com$
 
 # GitHub
 github.com
 github.io
+www.github.com
+www.github.io
+
+# FB video
+regex:^video-[A-Za-z0-9]*-[0-9]\.xx\.fbcdn\.net$

@@ -15,8 +15,9 @@ You stay in control of **what gets blocked and what doesn’t**.
 
 -   bash and coreutils
 -   curl
+-   aria2c
 
-> **Announce:** There is a 'aria2c' branch you can switch to, for better reliability in downloding larger source files. Your host machine should have a aria2c binary and its location should have been added to PATH environment variable. 
+> **Note:** The master branch does not require aria2c and use curl instead.
 
 ---
 

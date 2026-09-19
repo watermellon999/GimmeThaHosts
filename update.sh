@@ -82,21 +82,29 @@ fetch() {
     ###########################################################################
     # 3) Fetch (mandatory if validation unavailable or failed)
     ###########################################################################
-    if curl -fLs --connect-timeout 10 --max-time 60 "$src" -o "$dst"; then
-	  cp "$dst" "$archive_file"
-	  [[ -n "$etag" ]] && printf "%s" "$etag" > "$etag_file"
-	  [[ -n "$remote_size" ]] && printf "%s" "$remote_size" > "$size_file"
-	  log "OK: fetched $src"
-	  return 0
-	else
-	  log "WARN: failed to fetch $src"
-	  if [[ -f "$archive_file" ]]; then
-	    log "INFO: using archived copy for $src"
-	    cp "$archive_file" "$dst"
+    # Remove --no-conf option if you want to use your own aria2.conf 
+	  if aria2c \
+	  	   --no-conf \
+	         --allow-overwrite=true \
+	         --connect-timeout=10 \
+	         --timeout=60 \
+	         --dir="$(dirname -- "$dst")" \
+	         --out="$(basename -- "$dst")" \
+	         "$src" 1>/dev/null ; then
+	    cp "$dst" "$archive_file"
+	    [[ -n "$etag" ]] && printf "%s" "$etag" > "$etag_file"
+	    [[ -n "$remote_size" ]] && printf "%s" "$remote_size" > "$size_file"
+	    log "OK: fetched $src"
 	    return 0
+	  else
+	    log "WARN: failed to fetch $src"
+	    if [[ -f "$archive_file" ]]; then
+	      log "INFO: using archived copy for $src"
+	      cp "$archive_file" "$dst"
+	      return 0
+	    fi
+	    return 1
 	  fi
-	  return 1
-	fi
   else
     if cp "$src" "$dst" 2>/dev/null; then
       log "OK: read local file $src"

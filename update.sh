@@ -10,6 +10,7 @@ WHITELIST="whitelist.txt"
 BLACKLIST="blacklist.txt"
 LOG="hosts-build.log"
 ARCHIVE="./archive"
+OFFLINE=0
 
 mkdir -p "$ARCHIVE"
 
@@ -25,16 +26,17 @@ log() {
 # - Archives remote sources using SHA256(url) as filename
 # - Validation order:
 #   1) Prefer ETag (If-None-Match, 304 = unchanged)
-#   2) Fallback to Content-Length comparison
+#   2) Fallback to Content-Length comparison (only if no ETag available)
 #   3) If neither available → always fetch
 # - If fetch fails → fall back to archive if available
+#   --offline => never touch the network; use archive if present.
 ###############################################################################
 fetch() {
   local src="$1" dst="$2"
 
   if [[ "$src" =~ ^https?:// ]]; then
     local hash archive_file etag_file size_file
-    local headers etag remote_size local_size
+    local headers etag remote_size local_size http_code
 
     # Hash URL to generate deterministic archive filenames
     hash="$(printf "%s" "$src" | sha256sum | awk '{print $1}')"
@@ -42,25 +44,39 @@ fetch() {
     etag_file="$ARCHIVE/$hash.etag"
     size_file="$ARCHIVE/$hash.size"
 
-    # Fetch headers once (used for both ETag and size detection)
+    ###########################################################################
+    # OFFLINE: use archive only, never wait on network
+    ###########################################################################
+    if (( OFFLINE )); then
+      if [[ -f "$archive_file" ]]; then
+        cp "$archive_file" "$dst"
+        log "OK: [offline] using archived copy for $src"
+        return 0
+      fi
+      log "WARN: [offline] no archive for $src, skipping"
+      return 1
+    fi
+
+    ###########################################################################
+    # Headers (single request) — portable header value extraction
+    ###########################################################################
     headers="$(curl -fsI "$src" 2>/dev/null || true)"
 
-    # Extract ETag if present
     etag="$(printf "%s\n" "$headers" \
-      | awk -F': ' 'tolower($1)=="etag"{print $2}' \
+      | awk 'tolower($0) ~ /^etag:/ { sub(/^[^:]*:[[:space:]]*/, ""); print; exit }' \
       | tr -d '\r')"
 
-    # Extract Content-Length if present
     remote_size="$(printf "%s\n" "$headers" \
-      | awk -F': ' 'tolower($1)=="content-length"{print $2}' \
+      | awk 'tolower($0) ~ /^content-length:/ { sub(/^[^:]*:[[:space:]]*/, ""); print; exit }' \
       | tr -d '\r')"
 
     ###########################################################################
-    # 1) ETag validation (preferred)
+    # 1) ETag validation
     ###########################################################################
     if [[ -n "$etag" && -f "$etag_file" && -f "$archive_file" ]]; then
-      if curl -fsI -H "If-None-Match: $(cat "$etag_file")" "$src" \
-        | grep -q "304 Not Modified"; then
+      http_code="$(curl -sS -o /dev/null -w '%{http_code}' \
+        -H "If-None-Match: $(cat "$etag_file")" "$src" 2>/dev/null || true)"
+      if [[ "$http_code" == "304" ]]; then
         log "OK: using cached archive (ETag match) for $src"
         cp "$archive_file" "$dst"
         return 0
@@ -68,7 +84,8 @@ fetch() {
     fi
 
     ###########################################################################
-    # 2) Size-based validation (fallback)
+    # 2) Size-based validation (fallback) — only when no ETag available,
+    #    so a changed ETag is never silently served stale from archive.
     ###########################################################################
     if [[ -z "$etag" && -n "$remote_size" && -f "$archive_file" ]]; then
       local_size="$(stat -c%s "$archive_file" 2>/dev/null || true)"
@@ -80,23 +97,44 @@ fetch() {
     fi
 
     ###########################################################################
-    # 3) Fetch (mandatory if validation unavailable or failed)
+    # 3) Fetch
     ###########################################################################
-    if curl -fLs --connect-timeout 10 --max-time 60 "$src" -o "$dst"; then
-	  cp "$dst" "$archive_file"
-	  [[ -n "$etag" ]] && printf "%s" "$etag" > "$etag_file"
-	  [[ -n "$remote_size" ]] && printf "%s" "$remote_size" > "$size_file"
-	  log "OK: fetched $src"
-	  return 0
-	else
-	  log "WARN: failed to fetch $src"
-	  if [[ -f "$archive_file" ]]; then
-	    log "INFO: using archived copy for $src"
-	    cp "$archive_file" "$dst"
-	    return 0
-	  fi
-	  return 1
-	fi
+    local tmpdl rc=0
+    tmpdl="$(mktemp "$TMP/dl.XXXXXX")"
+    curl -fLs --retry 3 --retry-delay 2 --retry-connrefused \
+         --connect-timeout 10 --max-time 60 "$src" -o "$tmpdl" || rc=$?
+
+    if [[ $rc -eq 0 && -s "$tmpdl" ]]; then
+      if [[ -n "$remote_size" ]]; then
+        local got; got="$(stat -c%s "$tmpdl" 2>/dev/null || echo 0)"
+        if [[ "$got" != "$remote_size" ]]; then
+          log "WARN: size mismatch for $src (got $got, want $remote_size)"
+          rm -f "$tmpdl"; rc=1
+        fi
+      fi
+    fi
+
+    if [[ $rc -eq 0 && -s "$tmpdl" ]]; then
+      mv -f "$tmpdl" "$dst"
+      if cp "$dst" "$archive_file"; then
+        [[ -n "$etag" ]]        && printf "%s" "$etag"        > "$etag_file"
+        [[ -n "$remote_size" ]] && printf "%s" "$remote_size" > "$size_file"
+        log "OK: fetched $src"
+        return 0
+      else
+        log "WARN: failed to archive $src (continuing with downloaded file)"
+        return 0
+      fi
+    fi
+
+    rm -f "$tmpdl"
+    log "WARN: failed to fetch $src (curl rc=$rc)"
+    if [[ -f "$archive_file" ]]; then
+      log "INFO: using archived copy for $src"
+      cp "$archive_file" "$dst"
+      return 0
+    fi
+    return 1
   else
     if cp "$src" "$dst" 2>/dev/null; then
       log "OK: read local file $src"
@@ -107,7 +145,6 @@ fetch() {
     fi
   fi
 }
-
 
 ###############################################################################
 # normalize():
@@ -140,7 +177,19 @@ extract_domains() {
 }
 
 ###############################################################################
-# Load blacklist first (highest priority)
+# Parse CLI args
+###############################################################################
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --offline) OFFLINE=1; shift ;;
+    -h|--help)
+      echo "Usage: $0 [--offline]"; exit 0 ;;
+    *) log "ERROR: unknown argument: $1"; exit 2 ;;
+  esac
+done
+
+###############################################################################
+# Blacklist
 ###############################################################################
 > "$TMP/all.domains"
 
@@ -150,13 +199,14 @@ if [[ -f "$BLACKLIST" ]]; then
 fi
 
 ###############################################################################
-# Process sources.txt (supports blank lines and comments)
+# Sources
 ###############################################################################
 fetched=0
 while read -r src || [[ -n "$src" ]]; do
   [[ -z "$src" || "$src" =~ ^[[:space:]]*(#|//) ]] && continue
 
-  file="$TMP/$(basename "$src")"
+  # Hashed temp name avoids collisions between sources sharing a basename
+  file="$TMP/src.$(printf "%s" "$src" | sha256sum | awk '{print $1}')"
   if fetch "$src" "$file"; then
     normalize < "$file" | extract_domains >> "$TMP/all.domains"
     fetched=$((fetched + 1))
@@ -170,59 +220,59 @@ fi
 
 log "INFO: processed $fetched source(s)"
 
-sort -u "$TMP/all.domains" > "$TMP/unique.domains"
+LC_ALL=C sort -u "$TMP/all.domains" > "$TMP/unique.domains"
 
 ###############################################################################
-# Whitelist filtering:
-# - Supports exact domains (plain text)
-# - Supports regex patterns (prefix with: regex:)
+# Whitelist: exact + regex
+#   IMPORTANT: split regex lines BEFORE normalize/extract so anchors survive.
 ###############################################################################
 if [[ -f "$WHITELIST" ]]; then
   log "INFO: applying whitelist (exact + regex support)"
 
-  awk '
-    # Load whitelist
-    NR==FNR {
-      if ($0 ~ /^regex:/) {
-        sub(/^regex:/, "", $0)
-        regex[++r] = $0
-      } else {
-        exact[$1] = 1
+  # Separate exact domains (normalized) from raw regex patterns
+  normalize < "$WHITELIST" \
+    | grep -v '^regex:' \
+    | extract_domains > "$TMP/wl.exact" || true
+
+  grep -E '^[[:space:]]*regex:' "$WHITELIST" \
+    | sed -E 's/^[[:space:]]*regex:[[:space:]]*//; s/[[:space:]]+$//; s/\r$//' \
+    > "$TMP/wl.regex" || true
+
+  awk -v exactfile="$TMP/wl.exact" -v regexfile="$TMP/wl.regex" '
+    BEGIN {
+      while ((getline line < exactfile) > 0) { if (line != "") exact[line]=1 }
+      close(exactfile)
+      r=0
+      while ((getline line < regexfile) > 0) {
+        if (line != "") regex[++r]=line
       }
-      next
+      close(regexfile)
     }
-
     {
-      domain = $1
-
-      # Exact match
+      domain=$1
       if (domain in exact) next
-
-      # Regex match
-      for (i = 1; i <= r; i++) {
-        if (domain ~ regex[i]) next
-      }
-
+      for (i=1;i<=r;i++) if (domain ~ regex[i]) next
       print domain
     }
-  ' <(normalize < "$WHITELIST" | extract_domains) \
-    "$TMP/unique.domains" > "$TMP/filtered.domains"
+  ' "$TMP/unique.domains" > "$TMP/filtered.domains"
 else
   log "INFO: no whitelist found"
   cp "$TMP/unique.domains" "$TMP/filtered.domains"
 fi
 
 ###############################################################################
-# Final sorting (no subdomain collapsing)
+# Final sort
 ###############################################################################
 log "INFO: sorting final list"
-sort "$TMP/filtered.domains" > "$TMP/final.domains"
+LC_ALL=C sort "$TMP/filtered.domains" > "$TMP/final.domains"
 
 ###############################################################################
 # Generate hosts file
 ###############################################################################
 {
-  cat headers.txt
+  if [[ -f headers.txt ]]; then
+    cat headers.txt
+  fi
   echo
   echo "# Blocked domains"
   while read -r d; do
@@ -235,8 +285,8 @@ log "DONE: generated $OUT with $(wc -l < "$TMP/final.domains") domains"
 ###############################################################################
 # Prompt before replacing /etc/hosts
 ###############################################################################
-read -rp "Replace /etc/hosts with generated file? [y/N]: " ans
-if [[ "$ans" =~ ^[Yy]$ ]]; then
+read -rp "Replace /etc/hosts with generated file? [y/N]: " ans || true
+if [[ "${ans:-}" =~ ^[Yy]$ ]]; then
   if [[ $EUID -ne 0 ]]; then
     log "INFO: escalating privileges"
     sudo cp "$OUT" /etc/hosts
@@ -247,4 +297,3 @@ if [[ "$ans" =~ ^[Yy]$ ]]; then
 else
   log "INFO: /etc/hosts not modified"
 fi
-

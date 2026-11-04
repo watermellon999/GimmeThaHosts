@@ -9,6 +9,24 @@ In simple terms:
 
 You stay in control of **what gets blocked and what doesn’t**.
 
+> ## 🚚 This project has moved
+>
+> The local-build version of this project is now maintained in two places,
+> depending on how you want to run it:
+>
+> - **CI-first version (recommended):** [`watermellon999/BuildTheHosts`](https://github.com/watermellon999/BuildTheHosts)
+>   — builds hosts files on GitHub Actions and
+>   publishes them to a rolling `latest` release. No local installation,
+>   supports multiple profiles,
+>   no `/etc/hosts` edits on your machine, no cache to manage.
+>   **If you know how to fork a repo and enable a workflow, use this one.**
+> - **Local-build version (this repo):** still the right choice if you
+>   want to run the build on your own machine and benefit from the
+>   archive cache and `--offline` mode. See *Running it yourself* below.
+>
+> The two repos are not meant to be mixed. Pick the one that matches
+> how you want to run it.
+
 ---
 
 ## Requirements
@@ -34,6 +52,65 @@ You stay in control of **what gets blocked and what doesn’t**.
     
 
 No magic, no background services, no telemetry.
+
+
+---
+
+## Running it yourself (optional)
+
+The script is a single bash file and has no install step. You need `bash`, `coreutils`, and `curl` (and `aria2c` on the aria2c branch). Clone the repo, review the four config files, and run:
+
+```
+git clone https://github.com/watermellon999/GimmeThaHosts.git
+cd GimmeThaHosts
+```
+
+edit these to match your setup — do not skip this
+```
+$EDITOR sources.txt
+$EDITOR whitelist.txt
+$EDITOR blacklist.txt
+$EDITOR headers.txt
+
+chmod +x update.sh
+./update.sh
+```
+
+The script:
+
+- downloads every source in `sources.txt` into `./archive/`,
+- skips re-downloading unchanged files using ETag or `Content-Length`,
+- applies `blacklist.txt` first, then filters out anything matched by
+  `whitelist.txt` (exact domains and `regex:` patterns),
+- writes `hosts.blocked` in the current directory,
+- asks before copying it to `/etc/hosts`.
+
+Nothing is written outside the repo until you answer `y` at the prompt.
+
+### Offline mode
+
+If you've run the script at least once, `./archive/` holds a copy of every source. To rebuild from those copies without touching the network
+— useful when offline, on a metered connection, or when a source is down:
+
+```
+./build.sh --offline
+```
+
+In offline mode the script never makes an HTTP request. Sources that have an archive are used; sources that don't are skipped with a warning. A full build from warm archives takes a second or two.
+
+### Restoring `/etc/hosts`
+
+Keep a backup before the first run:
+
+```
+sudo cp /etc/hosts /etc/hosts.bak
+```
+
+The script does not create one for you. To undo a build:
+
+```
+sudo cp /etc/hosts.bak /etc/hosts
+```
 
 ---
 
